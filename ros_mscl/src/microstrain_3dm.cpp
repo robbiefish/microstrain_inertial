@@ -600,6 +600,57 @@ void Microstrain::run()
             mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_HEADING_UPDATE_SOURCE,
             mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_NED_RELATIVE_POS};
 
+        if(filter_enable_gnss_pos_vel_aiding)
+          navChannels.push_back(mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_POSITION_AIDING_STATUS);
+        if(filter_enable_gnss_heading_aiding)
+          navChannels.push_back(mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_GNSS_DUAL_ANTENNA_STATUS);
+        
+        mscl::MipChannels supportedChannels;
+        for(mscl::MipTypes::ChannelField channel : m_inertial_device->features().supportedChannelFields(mscl::MipTypes::DataClass::CLASS_ESTFILTER))
+        {
+          if(std::find(navChannels.begin(), navChannels.end(), channel) != navChannels.end())
+          {
+            // Reduce the rate of Filter Status to 10hz
+            if (channel == mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_FILTER_STATUS)
+            {
+              supportedChannels.push_back(mscl::MipChannel(channel, mscl::SampleRate::Hertz(10)));
+            }
+            // Reduce the rate of Dual Antenna Status to 10hz
+            else if (channel == mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_GNSS_DUAL_ANTENNA_STATUS)
+            {
+              supportedChannels.push_back(mscl::MipChannel(channel, mscl::SampleRate::Hertz(10)));
+            }
+            // Reduce the rate of Position Aiding Status to 10hz
+            else if (channel == mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_POSITION_AIDING_STATUS)
+            {
+              supportedChannels.push_back(mscl::MipChannel(channel, mscl::SampleRate::Hertz(10)));
+            }
+            // Set all other filter data to stream at the rate specified in the launch file
+            else
+            {
+              supportedChannels.push_back(mscl::MipChannel(channel, filter_rate));
+            }
+          }
+        }
+        /*
+        ROS_INFO("Setting Filter data to stream at %d hz", m_filter_data_rate);
+
+        mscl::MipTypes::MipChannelFields navChannels{
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_GPS_TIMESTAMP,
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_FILTER_STATUS,
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_ESTIMATED_LLH_POS,
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_ESTIMATED_NED_VELOCITY,
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_ESTIMATED_ORIENT_QUATERNION,
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_ESTIMATED_LLH_UNCERT,
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_ESTIMATED_NED_UNCERT,
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_ESTIMATED_ATT_UNCERT_QUAT,
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_ESTIMATED_ANGULAR_RATE,
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_ESTIMATED_ATT_UNCERT_EULER,
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_COMPENSATED_ACCEL,
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_ESTIMATED_ORIENT_EULER,
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_HEADING_UPDATE_SOURCE,
+            mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_NED_RELATIVE_POS};
+
             if(filter_enable_gnss_pos_vel_aiding)
               navChannels.push_back(mscl::MipTypes::ChannelField::CH_FIELD_ESTFILTER_POSITION_AIDING_STATUS);
             if(filter_enable_gnss_heading_aiding)
@@ -613,6 +664,7 @@ void Microstrain::run()
             supportedChannels.push_back(mscl::MipChannel(channel, filter_rate));
           }
         }
+        */
 
         m_inertial_device->setActiveChannelFields(mscl::MipTypes::DataClass::CLASS_ESTFILTER, supportedChannels);
 
@@ -1724,6 +1776,7 @@ void Microstrain::parse_filter_packet(const mscl::MipDataPacket &packet)
 {
   bool gnss_aiding_status_received[NUM_GNSS] = {false};
   bool gnss_dual_antenna_status_received = false;
+  bool filter_status_received = false;
   int  i;
 
   //Update diagnostics
@@ -1766,6 +1819,7 @@ void Microstrain::parse_filter_packet(const mscl::MipDataPacket &packet)
     {
       if(point.qualifier() == mscl::MipTypes::CH_FILTER_STATE) 
       {
+        filter_status_received = true;
         m_filter_status_msg.filter_state = point.as_uint16();
       } 
       else if(point.qualifier() == mscl::MipTypes::CH_DYNAMICS_MODE)
@@ -2197,7 +2251,8 @@ void Microstrain::parse_filter_packet(const mscl::MipDataPacket &packet)
   {
     m_filtered_imu_pub.publish(m_filtered_imu_msg);
     m_filter_pub.publish(m_filter_msg);
-    m_filter_status_pub.publish(m_filter_status_msg);
+    if(filter_status_received)
+      m_filter_status_pub.publish(m_filter_status_msg);
     m_filter_heading_pub.publish(m_filter_heading_msg);
     m_filter_heading_state_pub.publish(m_filter_heading_state_msg);
 
